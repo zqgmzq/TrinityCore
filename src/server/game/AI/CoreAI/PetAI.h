@@ -30,16 +30,16 @@ typedef std::vector<std::pair<Unit*, Spell*>> TargetSpellList;
 class TC_GAME_API PetAI : public CreatureAI
 {
     public:
-
-        explicit PetAI(Creature* c);
-
-        void UpdateAI(uint32) override;
         static int32 Permissible(Creature const* creature);
 
+        explicit PetAI(Creature* creature);
+
+        void UpdateAI(uint32 diff) override;
         void KilledUnit(Unit* /*victim*/) override;
-        void AttackStart(Unit* target) override; // only start attacking if not attacking something else already
+        // only start attacking if not attacking something else already
+        void AttackStart(Unit* target, bool meleeAttack = true, bool chaseTarget = true, float chaseDistance = 0.f) override;
         void _AttackStart(Unit* target); // always start attacking if possible
-        void MovementInform(uint32 moveType, uint32 data) override;
+        void MovementInform(uint32 type, uint32 id) override;
         void OwnerAttackedBy(Unit* attacker) override;
         void OwnerAttacked(Unit* target) override;
         void DamageTaken(Unit* attacker, uint32& /*damage*/) override { AttackStart(attacker); }
@@ -60,6 +60,7 @@ class TC_GAME_API PetAI : public CreatureAI
         void HandleReturnMovement();
         void DoAttack(Unit* target, bool chase);
         bool CanAttack(Unit* target);
+        // Quick access to set all flags to FALSE
         void ClearCharmInfoFlags();
 
         TimeTracker _tracker;

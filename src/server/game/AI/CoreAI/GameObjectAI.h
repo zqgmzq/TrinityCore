@@ -34,13 +34,11 @@ class TC_GAME_API GameObjectAI
     protected:
         GameObject* const me;
     public:
-        explicit GameObjectAI(GameObject* g) : me(g) { }
+        explicit GameObjectAI(GameObject* gameObject) : me(gameObject) { }
         virtual ~GameObjectAI() { }
 
         virtual void UpdateAI(uint32 /*diff*/) { }
-
         virtual void InitializeAI() { Reset(); }
-
         virtual void Reset() { }
 
         // Pass parameters between AI

@@ -24,12 +24,11 @@
 class TC_GAME_API ReactorAI : public CreatureAI
 {
     public:
+        static int32 Permissible(Creature const* creature);
 
-        explicit ReactorAI(Creature* c) : CreatureAI(c) { }
+        explicit ReactorAI(Creature* creature) : CreatureAI(creature) { }
 
         void MoveInLineOfSight(Unit*) override { }
         void UpdateAI(uint32 diff) override;
-
-        static int32 Permissible(Creature const* creature);
 };
 #endif

@@ -20,7 +20,6 @@
 #define TRINITY_TOTEMAI_H
 
 #include "CreatureAI.h"
-#include "Timer.h"
 
 class Creature;
 class Totem;
@@ -28,16 +27,14 @@ class Totem;
 class TC_GAME_API TotemAI : public CreatureAI
 {
     public:
-
-        explicit TotemAI(Creature* c);
-
-        void MoveInLineOfSight(Unit* who) override;
-        void AttackStart(Unit* victim) override;
-        void EnterEvadeMode(EvadeReason /*why*/) override;
-
-        void UpdateAI(uint32 diff) override;
         static int32 Permissible(Creature const* creature);
 
+        explicit TotemAI(Creature* creature);
+
+        void MoveInLineOfSight(Unit* /*who*/) override { }
+        void AttackStart(Unit* target, bool meleeAttack = true, bool chaseTarget = true, float chaseDistance = 0.f) override;
+        void EnterEvadeMode(EvadeReason /*why*/) override;
+        void UpdateAI(uint32 diff) override;
     private:
         ObjectGuid _victimGUID;
 };

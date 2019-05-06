@@ -19,9 +19,20 @@
 #include "PassiveAI.h"
 #include "Creature.h"
 
-PassiveAI::PassiveAI(Creature* c) : CreatureAI(c) { me->SetReactState(REACT_PASSIVE); }
-PossessedAI::PossessedAI(Creature* c) : CreatureAI(c) { me->SetReactState(REACT_PASSIVE); }
-NullCreatureAI::NullCreatureAI(Creature* c) : CreatureAI(c) { me->SetReactState(REACT_PASSIVE); }
+PassiveAI::PassiveAI(Creature* creature) : CreatureAI(creature)
+{
+    creature->SetReactState(REACT_PASSIVE);
+}
+
+PossessedAI::PossessedAI(Creature* creature) : CreatureAI(creature)
+{
+    creature->SetReactState(REACT_PASSIVE);
+}
+
+NullCreatureAI::NullCreatureAI(Creature* creature) : CreatureAI(creature)
+{
+    creature->SetReactState(REACT_PASSIVE);
+}
 
 int32 NullCreatureAI::Permissible(Creature const* creature)
 {
@@ -34,15 +45,15 @@ int32 NullCreatureAI::Permissible(Creature const* creature)
     return PERMIT_BASE_IDLE;
 }
 
-void PassiveAI::UpdateAI(uint32)
+void PassiveAI::UpdateAI(uint32 /*diff*/)
 {
     if (me->IsEngaged() && !me->IsInCombat())
         EnterEvadeMode(EVADE_REASON_NO_HOSTILES);
 }
 
-void PossessedAI::AttackStart(Unit* target)
+void PossessedAI::AttackStart(Unit* target, bool meleeAttack /*= true*/, bool /*chaseTarget = true*/, float /*chaseDistance = 0.f*/)
 {
-    me->Attack(target, true);
+    me->Attack(target, meleeAttack);
 }
 
 void PossessedAI::UpdateAI(uint32 /*diff*/)
@@ -56,7 +67,7 @@ void PossessedAI::UpdateAI(uint32 /*diff*/)
     }
 }
 
-void PossessedAI::JustDied(Unit* /*u*/)
+void PossessedAI::JustDied(Unit* /*killer*/)
 {
     // We died while possessed, disable our loot
     me->RemoveFlag(UNIT_DYNAMIC_FLAGS, UNIT_DYNFLAG_LOOTABLE);
@@ -69,7 +80,7 @@ void PossessedAI::KilledUnit(Unit* victim)
         victim->RemoveFlag(UNIT_DYNAMIC_FLAGS, UNIT_DYNFLAG_LOOTABLE);
 }
 
-void CritterAI::DamageTaken(Unit* /*done_by*/, uint32&)
+void CritterAI::DamageTaken(Unit* /*attacker*/, uint32& /*damage*/)
 {
     if (!me->HasUnitState(UNIT_STATE_FLEEING))
         me->SetControlled(true, UNIT_STATE_FLEEING);
@@ -79,6 +90,7 @@ void CritterAI::EnterEvadeMode(EvadeReason why)
 {
     if (me->HasUnitState(UNIT_STATE_FLEEING))
         me->SetControlled(false, UNIT_STATE_FLEEING);
+
     CreatureAI::EnterEvadeMode(why);
 }
 

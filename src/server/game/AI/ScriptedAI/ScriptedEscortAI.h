@@ -16,8 +16,8 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef SC_ESCORTAI_H
-#define SC_ESCORTAI_H
+#ifndef TRINITY_SCRIPTEDESCORTAI_H
+#define TRINITY_SCRIPTEDESCORTAI_H
 
 #include "ScriptedCreature.h"
 #include "WaypointDefines.h"
@@ -46,12 +46,14 @@ struct TC_GAME_API EscortAI : public ScriptedAI
         void ReturnToLastPoint();
         void EnterEvadeMode(EvadeReason /*why*/ = EVADE_REASON_OTHER) override;
         void MovementInform(uint32, uint32) override;
-        void UpdateAI(uint32 diff) override; // the "internal" update, calls UpdateEscortAI()
+        // the "internal" update, calls UpdateEscortAI()
+        void UpdateAI(uint32 diff) override;
 
-        virtual void UpdateEscortAI(uint32 diff); // used when it's needed to add code in update (abilities, scripted events, etc)
-        void AddWaypoint(uint32 id, float x, float y, float z, float orientation = 0.f, uint32 waitTime = 0); // waitTime is in ms
+        // used when it's needed to add code in update (abilities, scripted events, etc)
+        virtual void UpdateEscortAI(uint32 diff);
+        // waitTime is in ms
+        void AddWaypoint(uint32 id, float x, float y, float z, float orientation = 0.f, uint32 waitTime = 0);
         void Start(bool isActiveAttacker = true, bool run = false, ObjectGuid playerGUID = ObjectGuid::Empty, Quest const* quest = nullptr, bool instantRespawn = false, bool canLoopPath = false, bool resetWaypoints = true);
-
         void SetRun(bool on = true);
         void SetEscortPaused(bool on);
         void SetPauseTimer(uint32 Timer) { _pauseTimer = Timer; }

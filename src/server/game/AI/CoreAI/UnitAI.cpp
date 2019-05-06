@@ -27,20 +27,6 @@
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 
-void UnitAI::AttackStart(Unit* victim)
-{
-    if (victim && me->Attack(victim, true))
-    {
-        // Clear distracted state on attacking
-        if (me->HasUnitState(UNIT_STATE_DISTRACTED))
-        {
-            me->ClearUnitState(UNIT_STATE_DISTRACTED);
-            me->GetMotionMaster()->Clear();
-        }
-        me->GetMotionMaster()->MoveChase(victim);
-    }
-}
-
 void UnitAI::InitializeAI()
 {
     if (!me->isDead())
@@ -53,12 +39,6 @@ void UnitAI::OnCharmed(bool isNew)
         me->ScheduleAIChange();
 }
 
-void UnitAI::AttackStartCaster(Unit* victim, float dist)
-{
-    if (victim && me->Attack(victim, false))
-        me->GetMotionMaster()->MoveChase(victim, dist);
-}
-
 void UnitAI::DoMeleeAttackIfReady()
 {
     if (me->HasUnitState(UNIT_STATE_CASTING))
@@ -69,7 +49,7 @@ void UnitAI::DoMeleeAttackIfReady()
     if (!me->IsWithinMeleeRange(victim))
         return;
 
-    //Make sure our attack is ready and we aren't currently casting before checking distance
+    // Make sure our attack is ready and we aren't currently casting before checking distance
     if (me->isAttackReady())
     {
         me->AttackerStateUpdate(victim);
@@ -111,10 +91,23 @@ void UnitAI::SelectTargetList(std::list<Unit*>& targetList, uint32 num, SelectAg
     SelectTargetList(targetList, num, targetType, offset, DefaultTargetSelector(me, dist, playerOnly, withTank, aura));
 }
 
-float UnitAI::DoGetSpellMaxRange(uint32 spellId, bool positive)
+void UnitAI::AttackStart(Unit* target, bool meleeAttack /*= true*/, bool chaseTarget /*= true*/, float chaseDistance /*= 0.f*/)
 {
-    SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellId);
-    return spellInfo ? spellInfo->GetMaxRange(positive) : 0;
+    if (target && me->Attack(target, meleeAttack))
+    {
+        // Clear distracted state on attacking
+        if (me->HasUnitState(UNIT_STATE_DISTRACTED))
+        {
+            me->ClearUnitState(UNIT_STATE_DISTRACTED);
+            me->GetMotionMaster()->Clear();
+        }
+
+        me->GetMotionMaster()->Clear(MOTION_PRIORITY_NORMAL);
+        me->PauseMovement();
+
+        if (chaseTarget)
+            me->GetMotionMaster()->MoveChase(target, chaseDistance);
+    }
 }
 
 SpellCastResult UnitAI::DoCast(uint32 spellId)
@@ -183,6 +176,12 @@ SpellCastResult UnitAI::DoCastVictim(uint32 spellId, CastSpellExtraArgs const& a
         return DoCast(victim, spellId, args);
 
     return SPELL_FAILED_BAD_TARGETS;
+}
+
+float UnitAI::DoGetSpellMaxRange(uint32 spellId, bool positive)
+{
+    SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellId);
+    return spellInfo ? spellInfo->GetMaxRange(positive) : 0;
 }
 
 #define UPDATE_TARGET(a) {if (AIInfo->target<a) AIInfo->target=a;}

@@ -29,9 +29,9 @@ class TC_GAME_API GuardAI : public ScriptedAI
         explicit GuardAI(Creature* creature);
 
         static int32 Permissible(Creature const* creature);
+
         void UpdateAI(uint32 diff) override;
         bool CanSeeAlways(WorldObject const* obj) override;
-
         void EnterEvadeMode(EvadeReason /*why*/) override;
         void JustDied(Unit* killer) override;
 };

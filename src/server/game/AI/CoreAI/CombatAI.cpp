@@ -118,9 +118,11 @@ void CasterAI::InitializeAI()
     CombatAI::InitializeAI();
 
     _attackDistance = 30.0f;
+
     for (SpellVector::iterator itr = Spells.begin(); itr != Spells.end(); ++itr)
         if (AISpellInfo[*itr].condition == AICOND_COMBAT && _attackDistance > GetAISpellInfo(*itr)->maxRange)
             _attackDistance = GetAISpellInfo(*itr)->maxRange;
+
     if (_attackDistance == 30.0f)
         _attackDistance = MELEE_RANGE;
 }
@@ -177,44 +179,44 @@ void CasterAI::UpdateAI(uint32 diff)
 // ArcherAI
 //////////////
 
-ArcherAI::ArcherAI(Creature* c) : CreatureAI(c)
+ArcherAI::ArcherAI(Creature* creature) : CreatureAI(creature), _timer(0)
 {
-    if (!me->m_spells[0])
-        TC_LOG_ERROR("misc", "ArcherAI set for creature (entry = %u) with spell1=0. AI will do nothing", me->GetEntry());
+    if (!creature->m_spells[0])
+        TC_LOG_ERROR("scripts.ai", "ArcherAI set for creature with spell1 = 0. AI will do nothing (%s)", creature->GetGUID().ToString().c_str());
 
-    SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(me->m_spells[0]);
+    SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(creature->m_spells[0]);
     _minimumRange = spellInfo ? spellInfo->GetMinRange(false) : 0;
 
     if (!_minimumRange)
         _minimumRange = MELEE_RANGE;
-    me->m_CombatDistance = spellInfo ? spellInfo->GetMaxRange(false) : 0;
-    me->m_SightDistance = me->m_CombatDistance;
+
+    creature->m_CombatDistance = spellInfo ? spellInfo->GetMaxRange(false) : 0;
+    creature->m_SightDistance = creature->m_CombatDistance;
 }
 
-void ArcherAI::AttackStart(Unit* who)
+void ArcherAI::AttackStart(Unit* target, bool, bool, float)
 {
-    if (!who)
-        return;
-
-    if (me->IsWithinCombatRange(who, _minimumRange))
-    {
-        if (me->Attack(who, true) && !who->IsFlying())
-            me->GetMotionMaster()->MoveChase(who);
-    }
-    else
-    {
-        if (me->Attack(who, false) && !who->IsFlying())
-            me->GetMotionMaster()->MoveChase(who, me->m_CombatDistance);
-    }
-
-    if (who->IsFlying())
-        me->GetMotionMaster()->MoveIdle();
+    CreatureAI::AttackStart(target, true, true, me->m_CombatDistance);
 }
 
-void ArcherAI::UpdateAI(uint32 /*diff*/)
+void ArcherAI::UpdateAI(uint32 diff)
 {
     if (!UpdateVictim())
         return;
+
+    _timer.Update(diff);
+    if (_timer.Passed())
+    {
+        if (me->GetVictim()->IsFlying())
+        {
+            if (me->HasUnitState(UNIT_STATE_CHASE))
+                me->GetMotionMaster()->Remove(CHASE_MOTION_TYPE);
+        }
+        else if (!me->HasUnitState(UNIT_STATE_CHASE))
+            me->GetMotionMaster()->MoveChase(me->GetVictim(), me->m_CombatDistance);
+
+        _timer.Reset(1000);
+    }
 
     if (!me->IsWithinCombatRange(me->GetVictim(), _minimumRange))
         DoSpellAttackIfReady(me->m_spells[0]);
@@ -226,10 +228,10 @@ void ArcherAI::UpdateAI(uint32 /*diff*/)
 // TurretAI
 //////////////
 
-TurretAI::TurretAI(Creature* c) : CreatureAI(c)
+TurretAI::TurretAI(Creature* creature) : CreatureAI(creature)
 {
     if (!me->m_spells[0])
-        TC_LOG_ERROR("misc", "TurretAI set for creature (entry = %u) with spell1=0. AI will do nothing", me->GetEntry());
+        TC_LOG_ERROR("scripts.ai", "TurretAI set for creature with spell1 = 0. AI will do nothing (%s)", me->GetGUID().ToString().c_str());
 
     SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(me->m_spells[0]);
     _minimumRange = spellInfo ? spellInfo->GetMinRange(false) : 0;
@@ -240,16 +242,9 @@ TurretAI::TurretAI(Creature* c) : CreatureAI(c)
 bool TurretAI::CanAIAttack(Unit const* who) const
 {
     /// @todo use one function to replace it
-    if (!me->IsWithinCombatRange(who, me->m_CombatDistance)
-        || (_minimumRange && me->IsWithinCombatRange(who, _minimumRange)))
+    if (!me->IsWithinCombatRange(who, me->m_CombatDistance) || (_minimumRange && me->IsWithinCombatRange(who, _minimumRange)))
         return false;
     return true;
-}
-
-void TurretAI::AttackStart(Unit* who)
-{
-    if (who)
-        me->Attack(who, false);
 }
 
 void TurretAI::UpdateAI(uint32 /*diff*/)

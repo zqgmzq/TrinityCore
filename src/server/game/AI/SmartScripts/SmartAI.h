@@ -43,7 +43,7 @@ class TC_GAME_API SmartAI : public CreatureAI
 {
     public:
         ~SmartAI() { }
-        explicit SmartAI(Creature* c);
+        explicit SmartAI(Creature* creature);
 
         // core related
         static int32 Permissible(Creature const* /*creature*/) { return PERMIT_BASE_NO; }
@@ -58,9 +58,9 @@ class TC_GAME_API SmartAI : public CreatureAI
         void StopPath(uint32 DespawnTime = 0, uint32 quest = 0, bool fail = false);
         void EndPath(bool fail = false);
         void ResumePath();
-        bool HasEscortState(uint32 uiEscortState) const { return (_escortState & uiEscortState) != 0; }
-        void AddEscortState(uint32 uiEscortState) { _escortState |= uiEscortState; }
-        void RemoveEscortState(uint32 uiEscortState) { _escortState &= ~uiEscortState; }
+        bool HasEscortState(uint32 escortState) const { return (_escortState & escortState) != 0; }
+        void AddEscortState(uint32 escortState) { _escortState |= escortState; }
+        void RemoveEscortState(uint32 escortState) { _escortState &= ~escortState; }
         void SetAutoAttack(bool on) { _canAutoAttack = on; }
         void SetCombatMove(bool on);
         bool CanCombatMove() { return _canCombatMove; }
@@ -94,7 +94,7 @@ class TC_GAME_API SmartAI : public CreatureAI
         // Called when the creature summon successfully other creature
         void JustSummoned(Creature* creature) override;
 
-        // Tell creature to attack and follow the victim
+        // Tell creature to attack and chase the victim
         void AttackStart(Unit* who) override;
 
         // Called if IsVisible(Unit* who) is true at each *who move, reaction at visibility zone enter
@@ -245,7 +245,7 @@ class TC_GAME_API SmartAI : public CreatureAI
 class TC_GAME_API SmartGameObjectAI : public GameObjectAI
 {
     public:
-        SmartGameObjectAI(GameObject* g) : GameObjectAI(g), _gossipReturn(false) { }
+        SmartGameObjectAI(GameObject* gameObject) : GameObjectAI(gameObject), _gossipReturn(false) { }
         ~SmartGameObjectAI() { }
 
         void UpdateAI(uint32 diff) override;
