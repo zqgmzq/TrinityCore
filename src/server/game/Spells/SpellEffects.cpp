@@ -1006,6 +1006,9 @@ void Spell::EffectJump(SpellEffIndex effIndex)
     if (!unitTarget)
         return;
 
+    if (unitTarget->ToPlayer())
+        unitTarget->ToPlayer()->SetUnderACKmount();
+
     float speedXY, speedZ;
     CalculateJumpSpeeds(m_spellInfo, effIndex, unitCaster->GetExactDist2d(unitTarget), speedXY, speedZ);
     unitCaster->GetMotionMaster()->MoveJump(*unitTarget, speedXY, speedZ, EVENT_JUMP, false);
@@ -1024,6 +1027,9 @@ void Spell::EffectJumpDest(SpellEffIndex effIndex)
 
     if (!m_targets.HasDst())
         return;
+
+    if (unitCaster->ToPlayer())
+        unitCaster->ToPlayer()->SetUnderACKmount();
 
     float speedXY, speedZ;
     CalculateJumpSpeeds(m_spellInfo, effIndex, unitCaster->GetExactDist2d(destTarget), speedXY, speedZ);
@@ -4224,14 +4230,18 @@ void Spell::EffectCharge(SpellEffIndex /*effIndex*/)
     {
         // charge changes fall time
         if (unitCaster->GetTypeId() == TYPEID_PLAYER)
-            unitCaster->ToPlayer()->SetFallInformation(0, unitCaster->GetPositionZ());
+            unitCaster->ToPlayer()->ResetFallingData(unitCaster->GetPositionZ());
 
         float speed = G3D::fuzzyGt(m_spellInfo->Speed, 0.0f) ? m_spellInfo->Speed : SPEED_CHARGE;
         // Spell is not using explicit target - no generated path
         if (!m_preGeneratedPath)
         {
             //unitTarget->GetContactPoint(m_caster, pos.m_positionX, pos.m_positionY, pos.m_positionZ);
-            Position pos = unitTarget->GetFirstCollisionPosition(unitTarget->GetCombatReach(), unitTarget->GetRelativeAngle(m_caster));
+            Position pos;
+            if (unitCaster->GetTransport() || unitTarget->GetTransport())
+                pos = unitTarget->GetPosition();
+            else
+                pos = unitTarget->GetFirstCollisionPosition(unitTarget->GetCombatReach(), unitTarget->GetRelativeAngle(unitCaster));
             unitCaster->GetMotionMaster()->MoveCharge(pos.m_positionX, pos.m_positionY, pos.m_positionZ, speed);
         }
         else
@@ -4278,7 +4288,7 @@ void Spell::EffectKnockBack(SpellEffIndex effIndex)
         return;
 
     if (m_caster->GetAffectingPlayer())
-        if (Creature* creatureTarget = unitTarget->ToCreature())
+        if (Creature * creatureTarget = unitTarget->ToCreature())
             if (creatureTarget->isWorldBoss() || creatureTarget->IsDungeonBoss())
                 return;
 
@@ -4318,14 +4328,28 @@ void Spell::EffectLeapBack(SpellEffIndex effIndex)
     if (!unitTarget)
         return;
 
+    if (Unit * unitCaster = m_caster->ToUnit())
+    {
+        if (unitCaster->ToPlayer())
+            unitCaster->ToPlayer()->SetUnderACKmount();
+    }
+
     float speedxy = m_spellInfo->Effects[effIndex].MiscValue / 10.f;
-    float speedz = damage/ 10.f;
+    float modificator = sqrt(damage);
+    if (modificator > 10.0f)
+        modificator = 10.0f;
+    float speedz = damage / modificator;
+
     //1891: Disengage
-    unitTarget->JumpTo(speedxy, speedz, m_spellInfo->SpellIconID != 1891);
+    //4022: Rolling Throw
+    if (unitCaster)
+        unitCaster->JumpTo(speedxy, speedz, (m_spellInfo->SpellIconID != 1891 && m_spellInfo->SpellIconID != 4022));
+    if (m_spellInfo->SpellIconID == 4022)
+        unitTarget->JumpTo(speedxy, speedz);
 
     // changes fall time
-    if (m_caster->GetTypeId() == TYPEID_PLAYER)
-        m_caster->ToPlayer()->SetFallInformation(0, m_caster->GetPositionZ());
+    if (unitCaster && unitCaster->ToPlayer())
+        unitCaster->ToPlayer()->ResetFallingData(unitCaster->GetPositionZ());
 }
 
 void Spell::EffectQuestClear(SpellEffIndex effIndex)

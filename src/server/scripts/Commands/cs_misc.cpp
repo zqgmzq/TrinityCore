@@ -1888,6 +1888,12 @@ public:
                handler->PSendSysMessage(LANG_PINFO_CHR_MAILS, readmail, totalmail);
         }
 
+        if (target)
+        {
+            std::string _canfly = target->IsCanFlybyServer() ? handler->GetTrinityString(LANG_YES) : handler->GetTrinityString(LANG_NO);
+            handler->PSendSysMessage(LANG_PINFO_CHR_FLY_MODE, _canfly.c_str());
+        }
+
         return true;
     }
 

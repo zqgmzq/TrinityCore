@@ -15,8 +15,15 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "AccountMgr.h"
+#include "Creature.h"
+#include "InstanceSaveMgr.h"
+#include "Language.h"
+#include "Pet.h"
+#include "RBAC.h"
+#include "Realm.h"
+#include "World.h"
 #include "Common.h"
-#include "WorldPacket.h"
 #include "WorldSession.h"
 #include "Opcodes.h"
 #include "Log.h"
@@ -28,7 +35,6 @@
 #include "MoveSpline.h"
 #include "Transport.h"
 #include "Battleground.h"
-#include "InstanceSaveMgr.h"
 #include "ObjectMgr.h"
 #include "Vehicle.h"
 #include "GameTime.h"
@@ -90,7 +96,7 @@ void WorldSession::HandleMoveWorldportAck()
 
     float z = loc.GetPositionZ() + player->GetHoverOffset();
     player->Relocate(loc.GetPositionX(), loc.GetPositionY(), z, loc.GetOrientation());
-    player->SetFallInformation(0, player->GetPositionZ());
+    player->ResetFallingData(player->GetPositionZ());
 
     player->ResetMap();
     player->SetMap(newMap);
@@ -230,7 +236,7 @@ void WorldSession::HandleMoveTeleportAck(WorldPacket& recvData)
     WorldLocation const& dest = plMover->GetTeleportDest();
 
     plMover->UpdatePosition(dest, true);
-    plMover->SetFallInformation(0, GetPlayer()->GetPositionZ());
+    plMover->ResetFallingData(GetPlayer()->GetPositionZ());
 
     uint32 newzone, newarea;
     plMover->GetZoneAndAreaId(newzone, newarea);
@@ -272,6 +278,35 @@ void WorldSession::HandleMovementOpcodes(WorldPacket& recvData)
         return;
     }
 
+    if (plrMover && plrMover->IsUnderLastChanceForLandOrSwimOpcode())
+    {
+        bool checkNorm = false;
+        switch (opcode)
+        {
+            case MSG_MOVE_FALL_LAND:
+            case MSG_MOVE_START_SWIM:
+                checkNorm = true;
+                break;
+        }
+
+        if (plrMover->IsCanFlybyServer())
+            checkNorm = true;
+
+        if (!checkNorm)
+        {
+            TC_LOG_INFO("anticheat", "MovementHandler::NoFallingDamage by Account id : %u, Player %s", plrMover->GetSession()->GetAccountId(), plrMover->GetName().c_str());
+            sWorld->SendGMText(LANG_GM_ANNOUNCE_NOFALLINGDMG, plrMover->GetSession()->GetAccountId(), plrMover->GetName().c_str());
+            AccountMgr::RecordAntiCheatLog(plrMover->GetSession()->GetAccountId(), plrMover->GetName().c_str(), plrMover->GetDescriptionACForLogs(9), plrMover->GetPositionACForLogs(), int32(realm.Id.Realm));
+            if (sWorld->getBoolConfig(CONFIG_ANTICHEAT_NOFALLINGDMG_KICK_ENABLED))
+            {
+                plrMover->GetSession()->KickPlayer("Kicked by anticheat::NoFallingDamage");
+                recvData.rfinish();                     // prevent warnings spam
+                return;
+            }
+        }
+        else
+            plrMover->SetSuccessfullyLanded();
+    }
     /* extract packet */
     ObjectGuid guid;
 
@@ -287,17 +322,22 @@ void WorldSession::HandleMovementOpcodes(WorldPacket& recvData)
     if (guid != mover->GetGUID())
         return;
 
+    // [CMSG_MOVE_CHNG_TRANSPORT 0x038D (909)]
+    if (plrMover && opcode == CMSG_MOVE_CHNG_TRANSPORT)
+        plrMover->SetSkipOnePacketForASH(true);
+
     if (!movementInfo.pos.IsPositionValid())
     {
-        recvData.rfinish();                     // prevent warnings spam
+        if (plrMover)
+        {
+            plrMover->SetSkipOnePacketForASH(true);
+            plrMover->UpdateMovementInfo(movementInfo);
+        }
         return;
     }
 
     if (!mover->movespline->Finalized())
-    {
-        recvData.rfinish();                     // prevent warnings spam
         return;
-    }
 
     /* handle special cases */
     if (movementInfo.HasMovementFlag(MOVEMENTFLAG_ONTRANSPORT))
@@ -305,22 +345,22 @@ void WorldSession::HandleMovementOpcodes(WorldPacket& recvData)
         // We were teleported, skip packets that were broadcast before teleport
         if (movementInfo.pos.GetExactDist2d(mover) > SIZE_OF_GRIDS)
         {
-            recvData.rfinish();                 // prevent warnings spam
-            return;
-        }
-
-        // transports size limited
-        // (also received at zeppelin leave by some reason with t_* as absolute in continent coordinates, can be safely skipped)
-        if (fabs(movementInfo.transport.pos.GetPositionX()) > 75.0f || fabs(movementInfo.transport.pos.GetPositionY()) > 75.0f || fabs(movementInfo.transport.pos.GetPositionZ()) > 75.0f)
-        {
-            recvData.rfinish();                 // prevent warnings spam
+            if (plrMover)
+            {
+                plrMover->SetSkipOnePacketForASH(true);
+                plrMover->UpdateMovementInfo(movementInfo);
+            }
             return;
         }
 
         if (!Trinity::IsValidMapCoord(movementInfo.pos.GetPositionX() + movementInfo.transport.pos.GetPositionX(), movementInfo.pos.GetPositionY() + movementInfo.transport.pos.GetPositionY(),
             movementInfo.pos.GetPositionZ() + movementInfo.transport.pos.GetPositionZ(), movementInfo.pos.GetOrientation() + movementInfo.transport.pos.GetOrientation()))
         {
-            recvData.rfinish();                 // prevent warnings spam
+            if (plrMover)
+            {
+                plrMover->SetSkipOnePacketForASH(true);
+                plrMover->UpdateMovementInfo(movementInfo);
+            }
             return;
         }
 
@@ -334,6 +374,7 @@ void WorldSession::HandleMovementOpcodes(WorldPacket& recvData)
             }
             else if (plrMover->GetTransport()->GetGUID() != movementInfo.transport.guid)
             {
+                plrMover->SetSkipOnePacketForASH(true);
                 plrMover->GetTransport()->RemovePassenger(plrMover);
                 if (Transport* transport = plrMover->GetMap()->GetTransport(movementInfo.transport.guid))
                     transport->AddPassenger(plrMover);
@@ -351,23 +392,131 @@ void WorldSession::HandleMovementOpcodes(WorldPacket& recvData)
     }
     else if (plrMover && plrMover->GetTransport())                // if we were on a transport, leave
     {
+        plrMover->SetUnderACKmount(); // just for safe
         plrMover->GetTransport()->RemovePassenger(plrMover);
         movementInfo.transport.Reset();
     }
 
+    // start falling time
+    if (plrMover && !plrMover->HasUnitMovementFlag(MOVEMENTFLAG_FALLING_FAR) && movementInfo.HasMovementFlag(MOVEMENTFLAG_FALLING_FAR))
+        plrMover->ResetFallingData(movementInfo.pos.GetPositionZ());
+
+    // check on NoFallingDamage
+    if (plrMover && plrMover->HasUnitMovementFlag(MOVEMENTFLAG_FALLING_FAR) && !movementInfo.HasMovementFlag(MOVEMENTFLAG_FALLING_FAR))
+    {
+        if (!plrMover->IsCanFlybyServer())
+        {
+            bool checkNorm = false;
+            switch (opcode)
+            {
+                case MSG_MOVE_FALL_LAND:
+                case MSG_MOVE_START_SWIM:
+                    checkNorm = true;
+                    break;
+            }
+
+            if (!checkNorm && !plrMover->IsWaitingLandOrSwimOpcode())
+                plrMover->StartWaitingLandOrSwimOpcode();
+        }
+    }
+
     // fall damage generation (ignore in flight case that can be triggered also at lags in moment teleportation to another map).
-    if (opcode == MSG_MOVE_FALL_LAND && plrMover && !plrMover->IsInFlight())
+    if (opcode == MSG_MOVE_FALL_LAND && plrMover && !plrMover->IsInFlight() && !plrMover->IsFlying())
+    {
         plrMover->HandleFall(movementInfo);
+        plrMover->SetJumpingbyOpcode(false);
+    }
 
     // interrupt parachutes upon falling or landing in water
     if (opcode == MSG_MOVE_FALL_LAND || opcode == MSG_MOVE_START_SWIM)
+    {
         mover->RemoveAurasWithInterruptFlags(AURA_INTERRUPT_FLAG_LANDING); // Parachutes
+        if (plrMover)
+        {
+            if (plrMover->IsWaitingLandOrSwimOpcode() || plrMover->IsUnderLastChanceForLandOrSwimOpcode())
+                plrMover->SetSuccessfullyLanded();
+            plrMover->SetJumpingbyOpcode(false);
+            plrMover->ResetFallingData(movementInfo.pos.GetPositionZ()); // for MSG_MOVE_START_SWIM (no HandleFall(movementInfo))
+        }
+    }
 
     if (plrMover && ((movementInfo.flags & MOVEMENTFLAG_SWIMMING) != 0) != plrMover->IsInWater())
     {
         // now client not include swimming flag in case jumping under water
         plrMover->SetInWater(!plrMover->IsInWater() || plrMover->GetBaseMap()->IsUnderWater(movementInfo.pos.GetPositionX(), movementInfo.pos.GetPositionY(), movementInfo.pos.GetPositionZ()));
     }
+
+    bool jumpopcode = false;
+    if (opcode == MSG_MOVE_JUMP)
+    {
+        jumpopcode = true;
+        if (plrMover)
+        {
+            plrMover->SetUnderACKmount();
+            plrMover->SetJumpingbyOpcode(true);
+            if (mover->IsFalling())
+            {
+                TC_LOG_INFO("anticheat", "MovementHandler::DOUBLE_JUMP by Account id : %u, Player %s", plrMover->GetSession()->GetAccountId(), plrMover->GetName().c_str());
+                sWorld->SendGMText(LANG_GM_ANNOUNCE_DOUBLE_JUMP, plrMover->GetName().c_str());
+                AccountMgr::RecordAntiCheatLog(plrMover->GetSession()->GetAccountId(), plrMover->GetName().c_str(), plrMover->GetDescriptionACForLogs(6), plrMover->GetPositionACForLogs(), int32(realm.Id.Realm));
+                if (sWorld->getBoolConfig(CONFIG_ANTICHEAT_DOUBLEJUMP_ENABLED))
+                {
+                    plrMover->GetSession()->KickPlayer("Kicked by anticheat::DOUBLE_JUMP");
+                    return;
+                }
+            }
+        }
+    }
+
+    if (plrMover && !sWorld->isMapDisabledForAC(plrMover->GetMapId()))
+    {
+        if (sWorld->getBoolConfig(CONFIG_ANTICHEAT_FAKEJUMPER_ENABLED) && plrMover && mover->IsFalling() && movementInfo.pos.GetPositionZ() > mover->GetPositionZ())
+        {
+            if (!plrMover->IsJumpingbyOpcode() && !plrMover->UnderACKmount() && !plrMover->IsFlying())
+            {
+                // fake jumper -> for example gagarin air mode with falling flag (like player jumping), but client can't sent a new coords when falling
+                TC_LOG_INFO("anticheat", "MovementHandler::Fake_Jumper by Account id : %u, Player %s", plrMover->GetSession()->GetAccountId(), plrMover->GetName().c_str());
+                sWorld->SendGMText(LANG_GM_ANNOUNCE_JUMPER_FAKE, plrMover->GetName().c_str());
+                AccountMgr::RecordAntiCheatLog(plrMover->GetSession()->GetAccountId(), plrMover->GetName().c_str(), plrMover->GetDescriptionACForLogs(7), plrMover->GetPositionACForLogs(), int32(realm.Id.Realm));
+                if (sWorld->getBoolConfig(CONFIG_FAKEJUMPER_KICK_ENABLED))
+                {
+                    plrMover->GetSession()->KickPlayer("Kicked by anticheat::Fake_Jumper");
+                    return;
+                }
+            }
+        }
+
+        if (sWorld->getBoolConfig(CONFIG_ANTICHEAT_FAKEFLYINGMODE_ENABLED) && plrMover && !plrMover->IsCanFlybyServer() && !plrMover->UnderACKmount() && movementInfo.HasMovementFlag(MOVEMENTFLAG_MASK_MOVING_FLY) && !plrMover->IsInWater())
+        {
+            TC_LOG_INFO("anticheat", "MovementHandler::Fake_flying mode (using MOVEMENTFLAG_FLYING flag doesn't restricted) by Account id : %u, Player %s", plrMover->GetSession()->GetAccountId(), plrMover->GetName().c_str());
+            sWorld->SendGMText(LANG_GM_ANNOUNCE_JUMPER_FLYING, plrMover->GetName().c_str());
+            AccountMgr::RecordAntiCheatLog(plrMover->GetSession()->GetAccountId(), plrMover->GetName().c_str(), plrMover->GetDescriptionACForLogs(8), plrMover->GetPositionACForLogs(), int32(realm.Id.Realm));
+            if (sWorld->getBoolConfig(CONFIG_FAKEFLYINGMODE_KICK_ENABLED))
+            {
+                plrMover->GetSession()->KickPlayer("Kicked by anticheat::Fake_flying mode");
+                return;
+            }
+        }
+    }
+
+    /* start SpeedHack Detection */
+    if (plrMover && !plrMover->CheckMovementInfo(movementInfo, jumpopcode) && sWorld->getBoolConfig(CONFIG_ASH_KICK_ENABLED))
+    {
+        plrMover->GetSession()->KickPlayer("Kicked by anticheat::ASH");
+        return;
+    }
+
+    if (plrMover)
+    {
+        if (!plrMover->HasWalkingFlag() && movementInfo.HasMovementFlag(MOVEMENTFLAG_WALKING))
+            plrMover->SetWalkingFlag(true);
+        if (plrMover->HasWalkingFlag() && !movementInfo.HasMovementFlag(MOVEMENTFLAG_WALKING))
+            plrMover->SetWalkingFlag(false);
+    }
+
+    /* process position-change */
+    if (plrMover)
+        plrMover->UpdateMovementInfo(movementInfo);
 
     /* process position-change */
     WorldPacket data(opcode, recvData.size());
@@ -412,7 +561,8 @@ void WorldSession::HandleMovementOpcodes(WorldPacket& recvData)
         if (plrMover->IsSitState() && (movementInfo.flags & (MOVEMENTFLAG_MASK_MOVING | MOVEMENTFLAG_MASK_TURNING)))
             plrMover->SetStandState(UNIT_STAND_STATE_STAND);
 
-        plrMover->UpdateFallInformationIfNeed(movementInfo, opcode);
+        if (!movementInfo.HasMovementFlag(MOVEMENTFLAG_FALLING_FAR))
+            plrMover->UpdateFallInformationIfNeed(movementInfo.pos.GetPositionZ()); // don't use SetFallInformation
 
         if (movementInfo.pos.GetPositionZ() < plrMover->GetMap()->GetMinHeight(movementInfo.pos.GetPositionX(), movementInfo.pos.GetPositionY()))
         {
@@ -488,6 +638,7 @@ void WorldSession::HandleForceSpeedChangeAck(WorldPacket &recvData)
             return;
     }
 
+    _player->SetUnderACKmount();
     // skip all forced speed changes except last and unexpected
     // in run/mounted case used one ACK and it must be skipped.m_forced_speed_changes[MOVE_RUN} store both.
     if (_player->m_forced_speed_changes[force_move_type] > 0)

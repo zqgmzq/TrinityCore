@@ -312,6 +312,24 @@ Player::Player(WorldSession* session): Unit(true)
 
     m_stableSlots = 0;
 
+    /////////////////// AntiCheat System /////////////////////
+    m_flyhackTimer = 0;
+    if (sWorld->getBoolConfig(CONFIG_ANTICHEAT_FLYHACK_ENABLED))
+        m_flyhackTimer = sWorld->getIntConfig(CONFIG_ANTICHEAT_FLYHACK_TIMER);
+    m_mountTimer = 0;
+    m_rootUpdTimer = 0;
+    m_antiNoFallDmgTimer = 0;
+    m_ACKmounted = false;
+    m_rootUpd = false;
+    m_skipOnePacketForASH = true;
+    m_isjumping = false;
+    m_canfly = false;
+    m_antiNoFallDmg = false;
+    m_antiNoFallDmgLastChance = false;
+
+    lastMoveClientTimestamp = 0;
+    lastMoveServerTimestamp = 0;
+
     /////////////////// Instance System /////////////////////
 
     m_HomebindTimer = 0;
@@ -374,7 +392,6 @@ Player::Player(WorldSession* session): Unit(true)
 
     m_runes = nullptr;
 
-    m_lastFallTime = 0;
     m_lastFallZ = 0;
 
     m_grantableLevels = 0;
@@ -409,6 +426,9 @@ Player::Player(WorldSession* session): Unit(true)
     m_reputationMgr = new ReputationMgr(this);
 
     m_groupUpdateTimer.Reset(5000);
+    SetLastMoveClientTimestamp(GameTime::GetGameTimeMS());
+    SetLastMoveServerTimestamp(GameTime::GetGameTimeMS());
+    m_walking = false;
 }
 
 Player::~Player()
@@ -1228,6 +1248,53 @@ void Player::Update(uint32 p_time)
             m_zoneUpdateTimer -= p_time;
     }
 
+    if (m_flyhackTimer > 0)
+    {
+        if (p_time >= m_flyhackTimer)
+        {
+            if (!CheckOnFlyHack() && sWorld->getBoolConfig(CONFIG_AFH_KICK_ENABLED))
+                GetSession()->KickPlayer("AFH kicked by flyhackTimer");
+
+            m_flyhackTimer = sWorld->getIntConfig(CONFIG_ANTICHEAT_FLYHACK_TIMER);
+        }
+        else
+            m_flyhackTimer -= p_time;
+    }
+
+    if (m_ACKmounted && m_mountTimer > 0)
+    {
+        if (p_time >= m_mountTimer)
+        {
+            m_mountTimer = 0;
+            m_ACKmounted = false;
+        }
+        else
+            m_mountTimer -= p_time;
+    }
+
+    if (m_rootUpd && m_rootUpdTimer > 0)
+    {
+        if (p_time >= m_rootUpdTimer)
+        {
+            m_rootUpdTimer = 0;
+            m_rootUpd = false;
+        }
+        else
+            m_rootUpdTimer -= p_time;
+    }
+
+    if (m_antiNoFallDmg && m_antiNoFallDmgTimer > 0)
+    {
+        if (p_time >= m_antiNoFallDmgTimer)
+        {
+            m_antiNoFallDmgTimer = 0;
+            m_antiNoFallDmg = false;
+            m_antiNoFallDmgLastChance = true;
+        }
+        else
+            m_antiNoFallDmgTimer -= p_time;
+    }
+
     if (IsAlive())
     {
         m_regenTimer += p_time;
@@ -1614,6 +1681,8 @@ uint8 Player::GetChatTag() const
 
 bool Player::TeleportTo(uint32 mapid, float x, float y, float z, float orientation, uint32 options)
 {
+    SetSkipOnePacketForASH(true); // for except kick by antispeedhack
+
     if (!MapManager::IsValidMapCoord(mapid, x, y, z, orientation))
     {
         TC_LOG_ERROR("maps", "Player::TeleportTo: Invalid map (%d) or invalid coordinates (X: %f, Y: %f, Z: %f, O: %f) given when teleporting player '%s' (%s, MapID: %d, X: %f, Y: %f, Z: %f, O: %f).",
@@ -1711,7 +1780,7 @@ bool Player::TeleportTo(uint32 mapid, float x, float y, float z, float orientati
 
         // this will be used instead of the current location in SaveToDB
         m_teleport_dest = WorldLocation(mapid, x, y, z, orientation);
-        SetFallInformation(0, GetPositionZ());
+        ResetFallingData(GetPositionZ());
 
         // code for finish transfer called in WorldSession::HandleMovementOpcodes()
         // at client packet MSG_MOVE_TELEPORT_ACK
@@ -1813,7 +1882,7 @@ bool Player::TeleportTo(uint32 mapid, float x, float y, float z, float orientati
 
             m_teleport_dest = WorldLocation(mapid, x, y, z, orientation);
             m_teleport_options = options;
-            SetFallInformation(0, GetPositionZ());
+            ResetFallingData(GetPositionZ());
             // if the player is saved before worldportack (at logout for example)
             // this will be used instead of the current location in SaveToDB
 
@@ -17808,7 +17877,7 @@ bool Player::LoadFromDB(ObjectGuid guid, CharacterDatabaseQueryHolder* holder)
     SetUInt32Value(PLAYER_CHOSEN_TITLE, curTitle);
 
     // has to be called after last Relocate() in Player::LoadFromDB
-    SetFallInformation(0, GetPositionZ());
+    ResetFallingData(GetPositionZ());
 
     GetSpellHistory()->LoadFromDB<Player>(holder->GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_SPELL_COOLDOWNS));
 
@@ -25119,10 +25188,14 @@ InventoryResult Player::CanEquipUniqueItem(ItemTemplate const* itemProto, uint8 
     return EQUIP_ERR_OK;
 }
 
-void Player::SetFallInformation(uint32 time, float z)
+void Player::ResetFallingData(float z)
 {
-    m_lastFallTime = time;
     m_lastFallZ = z;
+
+    if (IsWaitingLandOrSwimOpcode())
+        m_antiNoFallDmg = false;
+    if (IsUnderLastChanceForLandOrSwimOpcode())
+        m_antiNoFallDmgLastChance = false;
 }
 
 void Player::HandleFall(MovementInfo const& movementInfo)
@@ -25454,12 +25527,6 @@ void Player::AddKnownCurrency(uint32 itemId)
 {
     if (CurrencyTypesEntry const* ctEntry = sCurrencyTypesStore.LookupEntry(itemId))
         SetFlag64(PLAYER_FIELD_KNOWN_CURRENCIES, (1LL << (ctEntry->BitIndex-1)));
-}
-
-void Player::UpdateFallInformationIfNeed(MovementInfo const& minfo, uint16 opcode)
-{
-    if (m_lastFallTime >= minfo.fallTime || m_lastFallZ <= minfo.pos.GetPositionZ() || opcode == MSG_MOVE_FALL_LAND)
-        SetFallInformation(minfo.fallTime, minfo.pos.GetPositionZ());
 }
 
 void Player::UnsummonPetTemporaryIfAny()
@@ -26550,8 +26617,9 @@ bool Player::SetDisableGravity(bool disable, bool packetOnly /*= false*/)
 bool Player::SetCanFly(bool apply, bool packetOnly /*= false*/)
 {
     if (!apply)
-        SetFallInformation(0, GetPositionZ());
+        ResetFallingData(GetPositionZ());
 
+    SetCanFlybyServer(apply);
     WorldPacket data(apply ? SMSG_MOVE_SET_CAN_FLY : SMSG_MOVE_UNSET_CAN_FLY, 12);
     data << GetPackGUID();
     data << uint32(0);          //! movement counter

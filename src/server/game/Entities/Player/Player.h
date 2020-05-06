@@ -1696,6 +1696,47 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         void BuildPlayerRepop();
         void RepopAtGraveyard();
 
+        /*********************************************************/
+        /***                  ANTICHEAT SYSTEM                   ***/
+        /*********************************************************///
+        // AntiCheat
+        void SetSkipOnePacketForASH(bool blinked) { m_skipOnePacketForASH = blinked; }
+        bool IsSkipOnePacketForASH() const { return m_skipOnePacketForASH; }
+        void SetJumpingbyOpcode(bool jump) { m_isjumping = jump; }
+        bool IsJumpingbyOpcode() const { return m_isjumping; }
+        void SetCanFlybyServer(bool canfly) { m_canfly = canfly; }
+        bool IsCanFlybyServer() const { return m_canfly; }
+
+        bool UnderACKmount() const { return m_ACKmounted; }
+        bool UnderACKRootUpd() const { return m_rootUpd; }
+        void SetUnderACKmount();
+        void SetRootACKUpd(uint32 delay);
+
+        // should only be used by packet handlers to validate and apply incoming MovementInfos from clients. Do not use internally to modify m_movementInfo
+        void UpdateMovementInfo(MovementInfo const& movementInfo);
+        bool CheckMovementInfo(MovementInfo const& movementInfo, bool jump); // ASH
+        bool CheckOnFlyHack(); // AFH
+
+        void SetLastMoveClientTimestamp(uint32 timestamp) { lastMoveClientTimestamp = timestamp; }
+        void SetLastMoveServerTimestamp(uint32 timestamp) { lastMoveServerTimestamp = timestamp; }
+        uint32 GetLastMoveClientTimestamp() const { return lastMoveClientTimestamp; }
+        uint32 GetLastMoveServerTimestamp() const { return lastMoveServerTimestamp; }
+
+        std::string GetDescriptionACForLogs(uint8 type, float param1 = 0.f, float param2 = 0.f) const;
+        std::string GetPositionACForLogs() const;
+
+        void StartWaitingLandOrSwimOpcode();
+        bool IsWaitingLandOrSwimOpcode() const { return m_antiNoFallDmg; }
+        bool IsUnderLastChanceForLandOrSwimOpcode() const { return m_antiNoFallDmgLastChance; }
+        void SetSuccessfullyLanded() { m_antiNoFallDmgLastChance = false; }
+        void ResetFallingData(float z);
+        void UpdateFallInformationIfNeed(float newZ) { m_lastFallZ = newZ; }
+        // END AntiCheat system
+
+        // Walking data from move packets
+        void SetWalkingFlag(bool walkstatus) { m_walking = walkstatus; }
+        bool HasWalkingFlag() const { return m_walking; }
+
         void RemoveGhoul();
 
         void SendDurabilityLoss();
@@ -1964,10 +2005,8 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         /*********************************************************/
         /***                 VARIOUS SYSTEMS                   ***/
         /*********************************************************/
-        void UpdateFallInformationIfNeed(MovementInfo const& minfo, uint16 opcode);
         // only changed for direct client control (possess, vehicle etc.), not stuff you control using pet commands
         WorldObject* m_seer;
-        void SetFallInformation(uint32 time, float z);
         void HandleFall(MovementInfo const& movementInfo);
 
         bool CanFlyInZone(uint32 mapid, uint32 zone, SpellInfo const* bySpell) const;
@@ -2457,7 +2496,6 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
 
         MapReference m_mapRef;
 
-        uint32 m_lastFallTime;
         float  m_lastFallZ;
 
         int32 m_MirrorTimer[MAX_TIMERS];
@@ -2478,6 +2516,30 @@ class TC_GAME_API Player : public Unit, public GridObject<Player>
         uint32 m_DelayedOperations;
         bool m_bCanDelayTeleport;
         bool m_bHasDelayedTeleport;
+
+        /*********************************************************/
+        /***                  Anticheat FEATURES                  ***/
+        /*********************************************************///
+        // Anticheat
+        bool m_skipOnePacketForASH; // Used for skip 1 movement packet after charge or blink
+        bool m_isjumping;           // Used for jump-opcode in movementhandler
+        bool m_canfly;              // Used for access at fly flag - handled restricted access
+        bool m_ACKmounted;
+        bool m_rootUpd;
+        bool m_antiNoFallDmg;
+        bool m_antiNoFallDmgLastChance;
+        uint32 m_mountTimer;
+        uint32 m_rootUpdTimer;
+        uint32 m_flyhackTimer;
+        uint32 m_antiNoFallDmgTimer;
+
+        // Timestamp on client clock of the moment the most recently processed movement packet was SENT by the client
+        uint32 lastMoveClientTimestamp;
+        // Timestamp on server clock of the moment the most recently processed movement packet was RECEIVED from the client
+        uint32 lastMoveServerTimestamp;
+        // END Anticheat feautures
+
+        bool m_walking;             // Player walking
 
         // Temporary removed pet cache
         uint32 m_temporaryUnsummonedPetNumber;

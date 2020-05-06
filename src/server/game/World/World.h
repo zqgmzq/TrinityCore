@@ -177,6 +177,17 @@ enum WorldBoolConfigs
     CONFIG_CACHE_DATA_QUERIES,
     CONFIG_CHECK_GOBJECT_LOS,
     CONFIG_RESPAWN_DYNAMIC_ESCORTNPC,
+    CONFIG_ANTICHEAT_FAKEJUMPER_ENABLED,
+    CONFIG_ANTICHEAT_FAKEFLYINGMODE_ENABLED,
+    CONFIG_ANTICHEAT_DOUBLEJUMP_ENABLED,
+    CONFIG_ANTICHEAT_FLYHACK_ENABLED,
+    CONFIG_ANTICHEAT_SPEEDHACK_ENABLED,
+    CONFIG_ANTICHEAT_IGNORE_CONTROL_MOVEMENT_ENABLED,
+    CONFIG_ASH_KICK_ENABLED,
+    CONFIG_AFH_KICK_ENABLED,
+    CONFIG_FAKEJUMPER_KICK_ENABLED,
+    CONFIG_FAKEFLYINGMODE_KICK_ENABLED,
+    CONFIG_ANTICHEAT_NOFALLINGDMG_KICK_ENABLED,
     BOOL_CONFIG_VALUE_COUNT
 };
 
@@ -394,6 +405,7 @@ enum WorldIntConfigs
     CONFIG_RESPAWN_DYNAMICMINIMUM_GAMEOBJECT,
     CONFIG_RESPAWN_GUIDWARNING_FREQUENCY,
     CONFIG_SOCKET_TIMEOUTTIME_ACTIVE,
+    CONFIG_ANTICHEAT_FLYHACK_TIMER,
     INT_CONFIG_VALUE_COUNT
 };
 
@@ -776,6 +788,9 @@ class TC_GAME_API World
         bool IsGuidWarning() { return _guidWarn; }
         bool IsGuidAlert() { return _guidAlert; }
 
+        void SetACMapExcludes(const std::string& mapIdExcludes);
+        bool isMapDisabledForAC(uint32 mapid) const { return excludeACMapsId.count(mapid); }
+
     protected:
         void _UpdateGameTime();
 
@@ -887,6 +902,7 @@ class TC_GAME_API World
         bool _guidAlert;
         uint32 _warnDiff;
         time_t _warnShutdownTime;
+        std::unordered_set<uint32> excludeACMapsId;
 
     friend class debug_commandscript;
 };

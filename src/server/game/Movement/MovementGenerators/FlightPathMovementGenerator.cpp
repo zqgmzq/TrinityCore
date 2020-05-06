@@ -168,7 +168,7 @@ void FlightPathMovementGenerator::DoFinalize(Player* owner, bool active, bool/* 
         // When the player reaches the last flight point, teleport to destination taxi node location
         if (TaxiNodesEntry const* node = sTaxiNodesStore.LookupEntry(taxiNodeId))
         {
-            owner->SetFallInformation(0, node->z);
+            owner->ResetFallingData(node->z);
             owner->TeleportTo(node->map_id, node->x, node->y, node->z, owner->GetOrientation());
         }
     }
