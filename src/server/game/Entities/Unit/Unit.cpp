@@ -75,6 +75,7 @@
 #include "WorldPacket.h"
 #include "WorldSession.h"
 #include <cmath>
+#include "../../../server/scripts/Custom/SpellRegulator.h"
 
 float baseMoveSpeed[MAX_MOVE_TYPE] =
 {
@@ -687,6 +688,9 @@ bool Unit::HasBreakableByDamageCrowdControlAura(Unit* excludeCasterChannel) cons
 
     // Hook for OnDamage Event
     sScriptMgr->OnDamage(attacker, victim, damage);
+
+    if ((damagetype == SPELL_DIRECT_DAMAGE || damagetype == DOT) && spellProto)
+        sSpellRegulator->Regulate(damage, spellProto->Id);
 
     if (victim->GetTypeId() == TYPEID_PLAYER)
     {
